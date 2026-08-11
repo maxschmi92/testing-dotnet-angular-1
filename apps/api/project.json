@@ -1,73 +1,65 @@
 {
-  "name": "api",
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
-  "sourceRoot": "apps/api/src",
+  "name": "api",
   "projectType": "application",
-  "tags": ["scope:api"],
-  "release": {
-    "docker": {
-      "repositoryName": "org/angular-template-api"
-    }
-  },
+  "sourceRoot": "apps/api",
+  "tags": ["scope:api", "type:app"],
   "targets": {
     "build": {
-      "executor": "@nx/esbuild:esbuild",
-      "outputs": ["{options.outputPath}"],
-      "defaultConfiguration": "production",
+      "executor": "nx:run-commands",
+      "cache": true,
+      "inputs": ["{projectRoot}/**/*", "{workspaceRoot}/apps/api-tests/**/*"],
       "options": {
-        "platform": "node",
-        "outputPath": "apps/api/dist",
-        "format": ["cjs"],
-        "bundle": false,
-        "main": "apps/api/src/main.ts",
-        "tsConfig": "apps/api/tsconfig.app.json",
-        "assets": ["apps/api/src/assets"],
-        "generatePackageJson": true,
-        "esbuildOptions": {
-          "sourcemap": true,
-          "outExtension": {
-            ".js": ".js"
-          }
-        }
-      },
-      "configurations": {
-        "development": {},
-        "production": {
-          "generateLockfile": true,
-          "esbuildOptions": {
-            "sourcemap": false,
-            "outExtension": {
-              ".js": ".js"
-            }
-          }
-        }
+        "command": "dotnet build apps/api/Api.slnx -c Release"
       }
     },
     "serve": {
+      "executor": "nx:run-commands",
       "continuous": true,
-      "executor": "@nx/js:node",
-      "defaultConfiguration": "development",
-      "dependsOn": ["build"],
       "options": {
-        "buildTarget": "api:build",
-        "runBuildTargetDependencies": false
-      },
-      "configurations": {
-        "development": {
-          "buildTarget": "api:build:development"
-        },
-        "production": {
-          "buildTarget": "api:build:production"
-        }
+        "command": "dotnet watch --project apps/api/Api.csproj run --launch-profile http"
       }
     },
     "test": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "inputs": ["{projectRoot}/**/*", "{workspaceRoot}/apps/api-tests/**/*"],
       "options": {
-        "passWithNoTests": true
+        "command": "dotnet test apps/api/Api.slnx"
       }
     },
-    "docker:build": {
-      "dependsOn": ["build"]
+    "lint": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "inputs": ["{projectRoot}/**/*", "{workspaceRoot}/apps/api-tests/**/*"],
+      "options": {
+        "command": "dotnet format apps/api/Api.slnx --verify-no-changes"
+      }
+    },
+    "format": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "dotnet format apps/api/Api.slnx"
+      }
+    },
+    "publish": {
+      "executor": "nx:run-commands",
+      "outputs": ["{workspaceRoot}/dist/apps/api"],
+      "options": {
+        "command": "dotnet publish apps/api/Api.csproj -c Release -o dist/apps/api"
+      }
+    },
+    "ef-migrations-add": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "dotnet ef migrations add {args.name} --project apps/api/Api.csproj --startup-project apps/api/Api.csproj --output-dir Migrations"
+      }
+    },
+    "ef-database-update": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "dotnet ef database update --project apps/api/Api.csproj --startup-project apps/api/Api.csproj"
+      }
     }
   }
 }

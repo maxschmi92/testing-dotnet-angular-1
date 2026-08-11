@@ -1,0 +1,14 @@
+**/node_modules
+**/dist
+**/.nx
+**/bin
+**/obj
+**/.angular
+**/.git
+**/.github
+**/coverage
+**/*.log
+**/.env
+**/.env.*
+!**/.env.example
+apps/api/openapi

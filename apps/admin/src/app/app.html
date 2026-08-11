@@ -1,0 +1,13 @@
+<main class="page">
+  <header class="page__header">
+    <h1>Admin panel</h1>
+    <p>Angular admin · consuming the .NET API through the generated client</p>
+  </header>
+
+  <lib-todo-list
+    heading="Admin todos"
+    [todos]="todos()"
+    [loading]="loading()"
+    (add)="addTodo($event)"
+  />
+</main>

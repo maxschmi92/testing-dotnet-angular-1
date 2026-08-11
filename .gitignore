@@ -38,6 +38,21 @@ testem.log
 .DS_Store
 Thumbs.db
 
+# .NET build output (EF Core migrations ARE committed; build artifacts are not)
+[Bb]in/
+[Oo]bj/
+*.user
+*.suo
+[Ll]ogs/
+
+# Environment / secrets — only .env.example is committed
+.env
+.env.*
+!.env.example
+
+# Oracle launch config (holds account-specific OCIDs); only the example is committed
+infra/oracle/launch.env
+
 .nx/cache
 .nx/workspace-data
 .cursor/rules/nx-rules.mdc

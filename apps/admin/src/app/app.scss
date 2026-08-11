@@ -1,0 +1,22 @@
+.page {
+  max-width: 40rem;
+  margin: 2rem auto;
+  padding: 0 1rem;
+  font-family:
+    system-ui,
+    -apple-system,
+    sans-serif;
+
+  &__header {
+    margin-bottom: 1.5rem;
+
+    h1 {
+      margin: 0 0 0.25rem;
+    }
+
+    p {
+      margin: 0;
+      color: #64748b;
+    }
+  }
+}

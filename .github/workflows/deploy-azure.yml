@@ -1,0 +1,100 @@
+name: Deploy (Azure)
+
+# Ships on every push to main (after CI validates on the same commit) and on demand.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-azure
+  cancel-in-progress: false
+
+env:
+  RESOURCE_GROUP: angular-dotnet-rg
+  CONTAINERAPP_NAME: angular-dotnet-api
+
+jobs:
+  # Build + push the API image to GHCR, then roll it out to Azure Container Apps.
+  api:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Image ref
+        id: img
+        run: echo "ref=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/angular-dotnet-api" >>"$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/api.Dockerfile
+          push: true
+          tags: |
+            ${{ steps.img.outputs.ref }}:latest
+            ${{ steps.img.outputs.ref }}:${{ github.sha }}
+
+      - uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Roll out to Container Apps
+        run: |
+          az extension add --name containerapp --upgrade --only-show-errors || true
+          az containerapp update \
+            --name "$CONTAINERAPP_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --image "${{ steps.img.outputs.ref }}:${{ github.sha }}"
+
+  # Build each SPA, stamp the API URL into config.json, deploy to Static Web Apps.
+  admin:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+      - run: npm ci --ignore-scripts
+      - run: npx nx build admin
+      - name: Stamp API URL
+        run: |
+          printf '{ "apiBaseUrl": "%s" }' "${{ vars.API_BASE_URL }}" > dist/apps/admin/browser/config.json
+      - uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_SWA_ADMIN_TOKEN }}
+          action: upload
+          app_location: dist/apps/admin/browser
+          skip_app_build: true
+          skip_api_build: true
+
+  client:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+      - run: npm ci --ignore-scripts
+      - run: npx nx build client
+      - name: Stamp API URL
+        run: |
+          printf '{ "apiBaseUrl": "%s" }' "${{ vars.API_BASE_URL }}" > dist/apps/client/browser/config.json
+      - uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_SWA_CLIENT_TOKEN }}
+          action: upload
+          app_location: dist/apps/client/browser
+          skip_app_build: true
+          skip_api_build: true

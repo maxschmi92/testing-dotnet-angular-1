@@ -1,0 +1,67 @@
+# Full stack — everything as containers (mirrors production; what CI builds images for).
+#   Start:  docker compose up --build
+#   Stop:   docker compose down
+# Config comes from .env (copy from .env.example). For the fast inner loop use
+# docker-compose.dev.yml (Postgres only) + `nx serve` instead.
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-angular_dotnet}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-angular_dotnet}',
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      # Apply EF migrations on startup so the schema is ready in the container stack.
+      ApplyMigrations: 'true'
+      ConnectionStrings__Default: Host=postgres;Port=5432;Database=${POSTGRES_DB:-angular_dotnet};Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD:-postgres}
+    ports:
+      - '${API_PORT:-5080}:8080'
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  admin:
+    build:
+      context: .
+      dockerfile: docker/angular.Dockerfile
+      args:
+        APP: admin
+    restart: unless-stopped
+    ports:
+      - '${ADMIN_PORT:-4200}:80'
+    depends_on:
+      - api
+
+  client:
+    build:
+      context: .
+      dockerfile: docker/angular.Dockerfile
+      args:
+        APP: client
+    restart: unless-stopped
+    ports:
+      - '${CLIENT_PORT:-4201}:80'
+    depends_on:
+      - api
+
+volumes:
+  pgdata:

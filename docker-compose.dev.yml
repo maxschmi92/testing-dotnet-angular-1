@@ -1,0 +1,41 @@
+# Dev tier — local inner-loop dependencies only.
+# Runs Postgres (+ pgAdmin) in containers; run the apps and API natively with `nx serve`.
+#   Start:  docker compose -f docker-compose.dev.yml up -d
+#   Stop:   docker compose -f docker-compose.dev.yml down
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: angular-dotnet-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: angular_dotnet
+    ports:
+      # Host 5433 (5432 is often taken by another local Postgres); container port stays 5432.
+      - '5433:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d angular_dotnet']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: angular-dotnet-pgadmin
+    restart: unless-stopped
+    profiles: ['tools']
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@example.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    ports:
+      - '5050:80'
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:

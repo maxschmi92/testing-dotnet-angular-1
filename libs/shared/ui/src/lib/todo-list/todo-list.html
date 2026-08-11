@@ -1,0 +1,30 @@
+<section class="todo">
+  <h2>{{ heading() }}</h2>
+
+  <form
+    class="todo__form"
+    (submit)="submit(input.value); input.value = ''; $event.preventDefault()"
+  >
+    <input
+      #input
+      class="todo__input"
+      placeholder="New todo…"
+      aria-label="New todo title"
+    />
+    <button class="todo__add" type="submit">Add</button>
+  </form>
+
+  @if (loading()) {
+  <p class="todo__muted">Loading…</p>
+  } @else if (todos().length === 0) {
+  <p class="todo__muted">No todos yet — add one above.</p>
+  } @else {
+  <ul class="todo__list">
+    @for (todo of todos(); track todo.id) {
+    <li class="todo__item" [class.todo__item--done]="todo.isDone">
+      {{ todo.title }}
+    </li>
+    }
+  </ul>
+  }
+</section>

@@ -1,0 +1,4 @@
+{
+  "*.{ts,tsx,js,mjs,cjs,mts,cts,html,scss,css,json,md,yml,yaml}": "prettier --write",
+  "*.cs": "dotnet format apps/api/Api.slnx --no-restore --include"
+}

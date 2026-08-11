@@ -11,3 +11,10 @@ trim_trailing_whitespace = true
 [*.md]
 max_line_length = off
 trim_trailing_whitespace = false
+
+# .NET / C# use 4-space indentation by convention
+[*.cs]
+indent_size = 4
+
+[*.{csproj,props,targets}]
+indent_size = 2

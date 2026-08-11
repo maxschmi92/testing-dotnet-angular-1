@@ -1,0 +1,53 @@
+.todo {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+
+  &__form {
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  &__input {
+    flex: 1;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--todo-border, #cbd5e1);
+    border-radius: 0.375rem;
+    font: inherit;
+  }
+
+  &__add {
+    padding: 0.5rem 1rem;
+    border: 0;
+    border-radius: 0.375rem;
+    background: var(--todo-accent, #2563eb);
+    color: #fff;
+    font: inherit;
+    cursor: pointer;
+  }
+
+  &__list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  &__item {
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--todo-border, #e2e8f0);
+    border-radius: 0.375rem;
+
+    &--done {
+      text-decoration: line-through;
+      opacity: 0.6;
+    }
+  }
+
+  &__muted {
+    color: #64748b;
+    margin: 0;
+  }
+}
