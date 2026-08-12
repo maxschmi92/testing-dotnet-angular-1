@@ -32,7 +32,7 @@ set -euo pipefail
 #                 westus2, eastasia. Change only if westeurope is restricted too.
 # ---------------------------------------------------------------------------
 LOCATION="${LOCATION:-swedencentral}"
-SWA_LOCATION="${SWA_LOCATION:-westeurope}"
+SWA_LOCATION="${SWA_LOCATION:-eastus2}"
 RESOURCE_GROUP="angular-dotnet-rg"
 PG_SERVER="pg-angular-dotnet-$RANDOM"      # must be globally unique
 PG_ADMIN="appadmin"
@@ -50,6 +50,7 @@ az extension add --name containerapp --upgrade --only-show-errors || true
 az provider register --namespace Microsoft.App --wait --only-show-errors || true
 az provider register --namespace Microsoft.DBforPostgreSQL --wait --only-show-errors || true
 az provider register --namespace Microsoft.OperationalInsights --wait --only-show-errors || true
+az provider register --namespace Microsoft.Web --wait --only-show-errors || true
 
 echo "▶ Resource group…"
 az group create -n "$RESOURCE_GROUP" -l "$LOCATION" --only-show-errors >/dev/null
@@ -59,18 +60,15 @@ az postgres flexible-server create \
   --resource-group "$RESOURCE_GROUP" --name "$PG_SERVER" --location "$LOCATION" \
   --admin-user "$PG_ADMIN" --admin-password "$PG_PASSWORD" \
   --tier Burstable --sku-name Standard_B1ms --storage-size 32 --version 16 \
-  --public-access None --yes --only-show-errors >/dev/null
+  --public-access 0.0.0.0 --yes --only-show-errors >/dev/null
+# `--public-access 0.0.0.0` enables public networking and adds the "allow all
+# Azure services" firewall rule, which is how Container Apps reaches Postgres.
 # Separate db create — the `db create` name flag is --name/-n on this CLI version.
 az postgres flexible-server db create \
   --resource-group "$RESOURCE_GROUP" --server-name "$PG_SERVER" --name "$PG_DB" \
   --only-show-errors >/dev/null
-# Allow other Azure services (Container Apps) to reach the server (0.0.0.0/0.0.0.0
-# is the special "Azure services" rule, not the public internet).
-az postgres flexible-server firewall-rule create \
-  --resource-group "$RESOURCE_GROUP" --name "$PG_SERVER" --rule-name AllowAzure \
-  --start-ip-address 0.0.0.0 --end-ip-address 0.0.0.0 --only-show-errors >/dev/null
 
-CONN="Host=${PG_SERVER}.postgres.database.azure.com;Port=5432;Database=${PG_DB};Username=${PG_ADMIN};Password=${PG_PASSWORD};Ssl Mode=Require;Trust Server Certificate=true"
+CONN="Host=${PG_SERVER}.postgres.database.azure.com;Port=5432;Database=${PG_DB};Username=${PG_ADMIN};Password=${PG_PASSWORD};SslMode=Require;TrustServerCertificate=true"
 
 echo "▶ Container Apps environment + API app…"
 az containerapp env create \
