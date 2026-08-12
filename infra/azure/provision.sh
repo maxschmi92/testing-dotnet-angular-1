@@ -59,8 +59,11 @@ az postgres flexible-server create \
   --resource-group "$RESOURCE_GROUP" --name "$PG_SERVER" --location "$LOCATION" \
   --admin-user "$PG_ADMIN" --admin-password "$PG_PASSWORD" \
   --tier Burstable --sku-name Standard_B1ms --storage-size 32 --version 16 \
-  --database-name "$PG_DB" \
   --public-access None --yes --only-show-errors >/dev/null
+# Separate db create — the `db create` name flag is --name/-n on this CLI version.
+az postgres flexible-server db create \
+  --resource-group "$RESOURCE_GROUP" --server-name "$PG_SERVER" --name "$PG_DB" \
+  --only-show-errors >/dev/null
 # Allow other Azure services (Container Apps) to reach the server (0.0.0.0/0.0.0.0
 # is the special "Azure services" rule, not the public internet).
 az postgres flexible-server firewall-rule create \
