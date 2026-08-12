@@ -38,7 +38,7 @@ both work with a **private** repo unchanged. The only difference is how Containe
 _pulls_ the image:
 
 - **Public package (simplest, free):** after the first image push, set the GHCR
-  package to Public (GitHub → Packages → `angular-dotnet-api` → Package settings →
+  package to Public (GitHub → Packages → `ada1` → Package settings →
   Change visibility). The repo source can still be **private** — package visibility is
   independent. Container Apps then pulls anonymously; nothing else to configure.
 - **Private package:** before running `provision.sh`, export a GitHub PAT with the

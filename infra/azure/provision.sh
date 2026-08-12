@@ -19,16 +19,26 @@
 set -euo pipefail
 
 # ---------------------------------------------------------------------------
-# Settings — tweak names/region if you like. SWA is only in a few regions, so
-# LOCATION must be one of: westeurope, eastus2, centralus, westus2, eastasia.
+# Settings — tweak names/region if you like. Both regions are overridable via
+# env vars so you can retry without editing the file, e.g.:
+#   LOCATION=northeurope bash infra/azure/provision.sh
+#
+# LOCATION      → Postgres + Container Apps. New/trial subscriptions are often
+#                 "restricted" from popular regions (westeurope especially); if
+#                 you hit "The location is restricted from performing this
+#                 operation", try another: swedencentral, northeurope,
+#                 francecentral, uksouth, germanywestcentral, eastus2, centralus.
+# SWA_LOCATION  → Static Web Apps only exist in: westeurope, eastus2, centralus,
+#                 westus2, eastasia. Change only if westeurope is restricted too.
 # ---------------------------------------------------------------------------
-LOCATION="westeurope"
+LOCATION="${LOCATION:-swedencentral}"
+SWA_LOCATION="${SWA_LOCATION:-westeurope}"
 RESOURCE_GROUP="angular-dotnet-rg"
 PG_SERVER="pg-angular-dotnet-$RANDOM"      # must be globally unique
 PG_ADMIN="appadmin"
 PG_DB="angular_dotnet"
 ACA_ENV="angular-dotnet-env"
-ACA_APP="angular-dotnet-api"
+ACA_APP="ada1-api"
 SWA_ADMIN="admin-angular-dotnet"
 SWA_CLIENT="client-angular-dotnet"
 PLACEHOLDER_IMAGE="mcr.microsoft.com/azuredocs/containerapps-helloworld:latest"
@@ -91,8 +101,8 @@ API_FQDN="$(az containerapp show -n "$ACA_APP" -g "$RESOURCE_GROUP" --query prop
 API_URL="https://${API_FQDN}"
 
 echo "▶ Static Web Apps (Free) — admin + client…"
-az staticwebapp create -n "$SWA_ADMIN"  -g "$RESOURCE_GROUP" -l "$LOCATION" --sku Free --only-show-errors >/dev/null
-az staticwebapp create -n "$SWA_CLIENT" -g "$RESOURCE_GROUP" -l "$LOCATION" --sku Free --only-show-errors >/dev/null
+az staticwebapp create -n "$SWA_ADMIN"  -g "$RESOURCE_GROUP" -l "$SWA_LOCATION" --sku Free --only-show-errors >/dev/null
+az staticwebapp create -n "$SWA_CLIENT" -g "$RESOURCE_GROUP" -l "$SWA_LOCATION" --sku Free --only-show-errors >/dev/null
 ADMIN_HOST="$(az staticwebapp show -n "$SWA_ADMIN"  -g "$RESOURCE_GROUP" --query defaultHostname -o tsv)"
 CLIENT_HOST="$(az staticwebapp show -n "$SWA_CLIENT" -g "$RESOURCE_GROUP" --query defaultHostname -o tsv)"
 ADMIN_TOKEN="$(az staticwebapp secrets list -n "$SWA_ADMIN"  -g "$RESOURCE_GROUP" --query properties.apiKey -o tsv)"
@@ -138,6 +148,6 @@ URLs:
 
 Next: push to main so .github/workflows/deploy-azure.yml runs. If the API
 revision can't pull the image, make the GHCR package public (GitHub → your
-profile → Packages → angular-dotnet-api → Package settings → Change visibility).
+profile → Packages → ada1 → Package settings → Change visibility).
 ============================================================================
 EOF
