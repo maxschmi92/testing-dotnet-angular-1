@@ -45,9 +45,11 @@ PLACEHOLDER_IMAGE="mcr.microsoft.com/azuredocs/containerapps-helloworld:latest"
 
 PG_PASSWORD="$(openssl rand -base64 24)"   # generated; surfaced only in the CI secret
 
-echo "▶ Registering resource providers (first run only)…"
+echo "▶ Registering resource providers + CLI extension (first run only)…"
+az extension add --name containerapp --upgrade --only-show-errors || true
 az provider register --namespace Microsoft.App --wait --only-show-errors || true
 az provider register --namespace Microsoft.DBforPostgreSQL --wait --only-show-errors || true
+az provider register --namespace Microsoft.OperationalInsights --wait --only-show-errors || true
 
 echo "▶ Resource group…"
 az group create -n "$RESOURCE_GROUP" -l "$LOCATION" --only-show-errors >/dev/null
@@ -57,10 +59,8 @@ az postgres flexible-server create \
   --resource-group "$RESOURCE_GROUP" --name "$PG_SERVER" --location "$LOCATION" \
   --admin-user "$PG_ADMIN" --admin-password "$PG_PASSWORD" \
   --tier Burstable --sku-name Standard_B1ms --storage-size 32 --version 16 \
+  --database-name "$PG_DB" \
   --public-access None --yes --only-show-errors >/dev/null
-az postgres flexible-server db create \
-  --resource-group "$RESOURCE_GROUP" --server-name "$PG_SERVER" --database-name "$PG_DB" \
-  --only-show-errors >/dev/null
 # Allow other Azure services (Container Apps) to reach the server (0.0.0.0/0.0.0.0
 # is the special "Azure services" rule, not the public internet).
 az postgres flexible-server firewall-rule create \
