@@ -25,11 +25,14 @@ with the Container Apps URL at deploy time). One build artifact works everywhere
    It prints the GitHub **secrets** and **variable** to add.
 3. **Add to GitHub** (Settings → Secrets and variables → Actions):
    - Secrets: `AZURE_CREDENTIALS`, `AZURE_SWA_ADMIN_TOKEN`, `AZURE_SWA_CLIENT_TOKEN`
-   - Variable: `API_BASE_URL`
-4. **Let Container Apps pull the API image** (see the two options below).
-5. **Push to `main`** → [`deploy-azure.yml`](../../.github/workflows/deploy-azure.yml)
-   builds + pushes the API image, rolls it out to Container Apps (EF migrations apply
-   on startup), and deploys both SPAs to Static Web Apps.
+   - Variables: `API_BASE_URL`, `RESOURCE_GROUP` (`angular-dotnet-rg`),
+     `CONTAINERAPP_NAME` (`ada1-api`) — the last two used to live hard-coded in the
+     workflow; they are variables now so each environment can point somewhere different.
+4. **Create the deploy environments** — see [Environments & promotion](#environments--promotion).
+5. **Let Container Apps pull the API image** (see the two options below).
+6. **Push to `main`** → [`deploy-azure.yml`](../../.github/workflows/deploy-azure.yml)
+   builds the artifacts once, promotes them to `staging` automatically, then waits for a
+   human to approve `production` (EF migrations apply on API startup).
 
 ## Public vs private repository
 
@@ -57,10 +60,54 @@ _pulls_ the image:
   free. The API image (~250 MB) × several `:sha` tags can exceed that — prune old tags,
   or keep the package public.
 
-## Deploys after that
+## Environments & promotion
 
-Every push to `main` re-runs the deploy. `CI` validates the same commit
-(`lint/test/build/e2e`); `Deploy (Azure)` ships it.
+`Deploy (Azure)` is a **promotion pipeline**, not a single deploy. On every push to
+`main` it builds the API image + both SPA bundles **once**, then promotes those exact
+artifacts through GitHub Environments:
+
+```
+build ──▶ staging (auto) ──▶ production (manual approval gate)
+```
+
+The reusable [`deploy-env.yml`](../../.github/workflows/deploy-env.yml) does the actual
+rollout for one environment; [`deploy-azure.yml`](../../.github/workflows/deploy-azure.yml)
+calls it twice. Nothing is rebuilt per environment — only `config.json` (SPA API URL)
+and the Container App target change.
+
+### One-time GitHub setup
+
+**Settings → Environments → New environment**, create two:
+
+| Environment  | Protection rule              | Effect                                           |
+| ------------ | ---------------------------- | ------------------------------------------------ |
+| `staging`    | _none_                       | deploys automatically after the build            |
+| `production` | **Required reviewers** = you | pipeline pauses here until you click **Approve** |
+
+The `production` "Required reviewers" rule **is** the promotion gate — that pause in the
+Actions run is where a real team does its final go/no-go.
+
+**Per-environment config.** Each environment can carry its own **variables** and
+**secrets** (Environment → Add variable / secret), which override repo-level ones for
+jobs targeting that environment. The workflow reads:
+
+- Variables: `RESOURCE_GROUP`, `CONTAINERAPP_NAME`, `API_BASE_URL`
+- Secrets: `AZURE_CREDENTIALS`, `AZURE_SWA_ADMIN_TOKEN`, `AZURE_SWA_CLIENT_TOKEN`
+
+> **Single-env caveat (free tier).** With one Azure environment, set the **same** values
+> on both `staging` and `production` (or just leave them repo-level) — both stages deploy
+> to the same resources, and the point of the exercise is the **gate**, not isolation.
+> When you later stand up real stage infra (e.g. a shared Postgres server with separate
+> `stage`/`prod` databases + separate SWA apps), change only the `staging` environment's
+> variables — the workflow doesn't change.
+
+### Branch protection (recommended companion)
+
+So `main` only ever moves through reviewed PRs, set **Settings → Branches → Add rule**
+for `main`: require a pull request, require the `CI` status check to pass, require ≥1
+approval, and include administrators. See the
+[git & delivery handbook](https://claude.ai/code/artifact/11120a13-5c4f-4b96-b5a6-981c87b70f45)
+for the reasoning.
 
 ## Teardown
 
