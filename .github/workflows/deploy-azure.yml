@@ -46,7 +46,6 @@ jobs:
           file: docker/api.Dockerfile
           push: true
           tags: |
-            ${{ steps.img.outputs.ref }}:latest
             ${{ steps.img.outputs.ref }}:${{ github.sha }}
 
       # --- SPA bundles (built once; each env stamps its own config.json at deploy) ---
