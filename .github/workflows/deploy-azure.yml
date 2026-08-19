@@ -1,6 +1,12 @@
 name: Deploy (Azure)
 
-# Ships on every push to main (after CI validates on the same commit) and on demand.
+# Promotion pipeline. Every push to main (after CI validates the same commit)
+# builds the artifacts ONCE, then promotes that exact build through environments:
+#
+#   build ──▶ staging (auto) ──▶ production (manual approval gate)
+#
+# The gate is a "Required reviewers" rule on the `production` GitHub Environment —
+# see infra/azure/README.md ("Environments & promotion") for the one-time setup.
 on:
   push:
     branches: [main]
@@ -10,17 +16,16 @@ concurrency:
   group: deploy-azure
   cancel-in-progress: false
 
-env:
-  RESOURCE_GROUP: angular-dotnet-rg
-  CONTAINERAPP_NAME: ada1-api
-
 jobs:
-  # Build + push the API image to GHCR, then roll it out to Azure Container Apps.
-  api:
+  # Build the API image + both SPA bundles ONCE. Downstream environments promote
+  # these exact artifacts — nothing is rebuilt per environment, only reconfigured.
+  build:
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
+    outputs:
+      image: ${{ steps.img.outputs.ref }}
     steps:
       - uses: actions/checkout@v4
 
@@ -28,73 +33,56 @@ jobs:
         id: img
         run: echo "ref=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/ada1" >>"$GITHUB_OUTPUT"
 
+      # --- API image → GHCR (immutable :sha tag is what gets promoted) ---
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
       - uses: docker/build-push-action@v6
         with:
           context: .
           file: docker/api.Dockerfile
           push: true
           tags: |
-            ${{ steps.img.outputs.ref }}:latest
             ${{ steps.img.outputs.ref }}:${{ github.sha }}
 
-      - uses: azure/login@v2
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-
-      - name: Roll out to Container Apps
-        run: |
-          az extension add --name containerapp --upgrade --only-show-errors || true
-          az containerapp update \
-            --name "$CONTAINERAPP_NAME" \
-            --resource-group "$RESOURCE_GROUP" \
-            --image "${{ steps.img.outputs.ref }}:${{ github.sha }}"
-
-  # Build each SPA, stamp the API URL into config.json, deploy to Static Web Apps.
-  admin:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+      # --- SPA bundles (built once; each env stamps its own config.json at deploy) ---
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: 'npm'
       - run: npm ci --ignore-scripts
       - run: npx nx build admin
-      - name: Stamp API URL
-        run: |
-          printf '{ "apiBaseUrl": "%s" }' "${{ vars.API_BASE_URL }}" > dist/apps/admin/browser/config.json
-      - uses: Azure/static-web-apps-deploy@v1
-        with:
-          azure_static_web_apps_api_token: ${{ secrets.AZURE_SWA_ADMIN_TOKEN }}
-          action: upload
-          app_location: dist/apps/admin/browser
-          skip_app_build: true
-          skip_api_build: true
-
-  client:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: 'npm'
-      - run: npm ci --ignore-scripts
       - run: npx nx build client
-      - name: Stamp API URL
-        run: |
-          printf '{ "apiBaseUrl": "%s" }' "${{ vars.API_BASE_URL }}" > dist/apps/client/browser/config.json
-      - uses: Azure/static-web-apps-deploy@v1
+      - uses: actions/upload-artifact@v4
         with:
-          azure_static_web_apps_api_token: ${{ secrets.AZURE_SWA_CLIENT_TOKEN }}
-          action: upload
-          app_location: dist/apps/client/browser
-          skip_app_build: true
-          skip_api_build: true
+          name: admin-dist
+          path: dist/apps/admin/browser
+      - uses: actions/upload-artifact@v4
+        with:
+          name: client-dist
+          path: dist/apps/client/browser
+
+  # Auto-promote the fresh build to staging.
+  staging:
+    needs: build
+    uses: ./.github/workflows/deploy-env.yml
+    with:
+      environment: staging
+      image: ${{ needs.build.outputs.image }}
+      image_tag: ${{ github.sha }}
+    secrets: inherit
+
+  # Promote the SAME build to production — but only after staging succeeds and a
+  # human approves the `production` environment (its Required-reviewers rule blocks
+  # these jobs until then).
+  production:
+    needs: staging
+    uses: ./.github/workflows/deploy-env.yml
+    with:
+      environment: production
+      image: ${{ needs.build.outputs.image }}
+      image_tag: ${{ github.sha }}
+    secrets: inherit

@@ -1,0 +1,89 @@
+name: Deploy to environment (reusable)
+
+# Reusable deploy: rolls the *already-built* API image out to Container Apps and
+# ships the *already-built* SPA bundles to Static Web Apps for ONE environment.
+# Called once per environment by deploy-azure.yml — same artifacts, different config.
+#
+# The `environment:` on each job is what wires in per-environment variables/secrets
+# AND GitHub's environment protection rules. Point `production` at a "Required
+# reviewers" rule and these jobs pause for a human before they run — that pause is
+# the promotion gate.
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: GitHub Environment to deploy to (e.g. staging / production)
+        required: true
+        type: string
+      image:
+        description: Full GHCR image ref without tag (e.g. ghcr.io/owner/ada1)
+        required: true
+        type: string
+      image_tag:
+        description: Immutable tag to promote (the commit SHA built upstream)
+        required: true
+        type: string
+    # Secrets come from `secrets: inherit` in the caller; environment-scoped
+    # secrets resolve because each job below targets `inputs.environment`.
+
+permissions:
+  contents: read
+
+jobs:
+  # Roll the promoted image out to Azure Container Apps.
+  api:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Roll out API to Container Apps
+        run: |
+          az extension add --name containerapp --upgrade --only-show-errors || true
+          az containerapp update \
+            --name "${{ vars.CONTAINERAPP_NAME }}" \
+            --resource-group "${{ vars.RESOURCE_GROUP }}" \
+            --image "${{ inputs.image }}:${{ inputs.image_tag }}"
+
+  # Ship the admin SPA bundle, stamping this environment's API URL into config.json.
+  admin:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: admin-dist
+          path: dist/apps/admin/browser
+      - name: Stamp API URL
+        run: |
+          printf '{ "apiBaseUrl": "%s" }' "${{ vars.API_BASE_URL }}" > dist/apps/admin/browser/config.json
+      - uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_SWA_ADMIN_TOKEN }}
+          action: upload
+          app_location: dist/apps/admin/browser
+          skip_app_build: true
+          skip_api_build: true
+
+  # Ship the client SPA bundle, stamping this environment's API URL into config.json.
+  client:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: client-dist
+          path: dist/apps/client/browser
+      - name: Stamp API URL
+        run: |
+          printf '{ "apiBaseUrl": "%s" }' "${{ vars.API_BASE_URL }}" > dist/apps/client/browser/config.json
+      - uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_SWA_CLIENT_TOKEN }}
+          action: upload
+          app_location: dist/apps/client/browser
+          skip_app_build: true
+          skip_api_build: true

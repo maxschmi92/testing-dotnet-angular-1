@@ -18,6 +18,9 @@ permissions:
 jobs:
   ci:
     runs-on: ubuntu-latest
+    # Hard cap so a hung step (e.g. a stalled browser/apt download) fails in
+    # minutes instead of burning to GitHub's 6-hour job ceiling.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
@@ -39,6 +42,14 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: dotnet tool restore
 
+      # Cache the Playwright browser bundle across runs — the cold download is
+      # what once stalled CI. On a cache hit the install is near-instant.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            playwright-${{ runner.os }}-
       # Chromium only — matches the trimmed Playwright configs.
       - run: npx playwright install --with-deps chromium
 
