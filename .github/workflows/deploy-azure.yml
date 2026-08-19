@@ -79,7 +79,10 @@ jobs:
   # human approves the `production` environment (its Required-reviewers rule blocks
   # these jobs until then).
   production:
-    needs: staging
+    # Depends on build (for the image ref output) AND staging (for ordering +
+    # the promotion gate). Without `build` here, needs.build.outputs.image is
+    # out of scope and resolves empty.
+    needs: [build, staging]
     uses: ./.github/workflows/deploy-env.yml
     with:
       environment: production
