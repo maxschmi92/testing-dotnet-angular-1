@@ -1,90 +1,92 @@
-name: Deploy (Azure)
+# ─────────────────────────────────────────────────────────────────────────────
+# Deploy (Azure) — the promotion pipeline (the "orchestrator").
+# Builds the artifacts ONCE, then promotes that same build through environments:
+#     build ──▶ staging (auto) ──▶ production (manual approval gate)
+# ─────────────────────────────────────────────────────────────────────────────
 
-# Promotion pipeline. Every push to main (after CI validates the same commit)
-# builds the artifacts ONCE, then promotes that exact build through environments:
-#
-#   build ──▶ staging (auto) ──▶ production (manual approval gate)
-#
-# The gate is a "Required reviewers" rule on the `production` GitHub Environment —
-# see infra/azure/README.md ("Environments & promotion") for the one-time setup.
-on:
+name: Deploy (Azure) # Display name in the Actions tab.
+
+on: # Triggers.
   push:
-    branches: [main]
-  workflow_dispatch:
+    branches: [main] #  • every push to main (i.e. after a PR merges).
+  workflow_dispatch: #  • plus a manual "Run workflow" button.
 
+# Serialize deploys: only one runs at a time in the "deploy-azure" lane.
 concurrency:
-  group: deploy-azure
-  cancel-in-progress: false
+  group: deploy-azure # a single shared lane for all deploys.
+  cancel-in-progress: false # do NOT cancel a running deploy; let it finish.
 
 jobs:
-  # Build the API image + both SPA bundles ONCE. Downstream environments promote
-  # these exact artifacts — nothing is rebuilt per environment, only reconfigured.
+  # ── JOB 1: build every artifact once ────────────────────────────────────────
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest # fresh Ubuntu VM.
     permissions:
-      contents: read
-      packages: write
-    outputs:
-      image: ${{ steps.img.outputs.ref }}
+      contents: read # read the repo…
+      packages: write # …and push the image to GHCR (GitHub Packages).
+    outputs: # values this job publishes for later jobs to read:
+      image: ${{ steps.img.outputs.ref }} # the image ref, taken from the "img" step below.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4 # clone the repo onto the VM.
 
-      - name: Image ref
-        id: img
+      - name: Image ref # a named step so later lines can reference its id.
+        id: img # handle used by `outputs.image` (steps.img.outputs.ref).
+        # Compute the image name (owner lower-cased) and write it to this step's
+        # output file so the job-level `outputs:` above can export it.
         run: echo "ref=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/ada1" >>"$GITHUB_OUTPUT"
 
-      # --- API image → GHCR (immutable :sha tag is what gets promoted) ---
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      # -- build & push the API Docker image --
+      - uses: docker/setup-buildx-action@v3 # set up Docker Buildx (the builder).
+      - uses: docker/login-action@v3 # log in to the container registry…
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/build-push-action@v6
+          registry: ghcr.io # …GitHub Container Registry…
+          username: ${{ github.actor }} # …as the user who triggered the run…
+          password: ${{ secrets.GITHUB_TOKEN }} # …with the auto-provided token.
+      - uses: docker/build-push-action@v6 # build the image and push it.
         with:
-          context: .
-          file: docker/api.Dockerfile
-          push: true
+          context: . # build context = repo root.
+          file: docker/api.Dockerfile # which Dockerfile to build.
+          push: true # push after building.
+          # Tag with the immutable commit SHA — this exact tag is what gets promoted:
           tags: |
             ${{ steps.img.outputs.ref }}:${{ github.sha }}
 
-      # --- SPA bundles (built once; each env stamps its own config.json at deploy) ---
+      # -- build both SPA bundles once, then upload them for the deploy jobs --
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: 'npm'
-      - run: npm ci --ignore-scripts
-      - run: npx nx build admin
-      - run: npx nx build client
-      - uses: actions/upload-artifact@v4
+      - run: npm ci --ignore-scripts # install JS deps.
+      - run: npx nx build admin # build the admin SPA.
+      - run: npx nx build client # build the client SPA.
+      - uses: actions/upload-artifact@v4 # store the admin bundle for later jobs…
         with:
-          name: admin-dist
-          path: dist/apps/admin/browser
-      - uses: actions/upload-artifact@v4
+          name: admin-dist # …under this artifact name…
+          path: dist/apps/admin/browser # …from this folder.
+      - uses: actions/upload-artifact@v4 # same for the client bundle.
         with:
           name: client-dist
           path: dist/apps/client/browser
 
-  # Auto-promote the fresh build to staging.
+  # ── JOB 2: deploy to staging automatically ──────────────────────────────────
   staging:
-    needs: build
-    uses: ./.github/workflows/deploy-env.yml
-    with:
-      environment: staging
-      image: ${{ needs.build.outputs.image }}
-      image_tag: ${{ github.sha }}
-    secrets: inherit
+    needs: build # wait for build; this also unlocks needs.build.outputs.
+    uses: ./.github/workflows/deploy-env.yml # run the reusable deploy workflow…
+    with: # …passing it these inputs:
+      environment: staging # deploy to the "staging" GitHub Environment.
+      image: ${{ needs.build.outputs.image }} # the image ref produced by build.
+      image_tag: ${{ github.sha }} # promote this exact commit's image.
+    secrets: inherit # hand this repo's secrets down to the called workflow.
 
-  # Promote the SAME build to production — but only after staging succeeds and a
-  # human approves the `production` environment (its Required-reviewers rule blocks
-  # these jobs until then).
+  # ── JOB 3: deploy to production, only after staging AND approval ─────────────
   production:
     # Depends on build (for the image ref output) AND staging (for ordering +
-    # the promotion gate). Without `build` here, needs.build.outputs.image is
-    # out of scope and resolves empty.
+    # the gate). Without `build` here, needs.build.outputs.image is out of scope
+    # and resolves to an empty string.
     needs: [build, staging]
     uses: ./.github/workflows/deploy-env.yml
     with:
+      # Deploy to "production" — whose Required-reviewers rule pauses these jobs
+      # until a human approves the run.
       environment: production
       image: ${{ needs.build.outputs.image }}
       image_tag: ${{ github.sha }}

@@ -1,57 +1,63 @@
-name: CI
+# ─────────────────────────────────────────────────────────────────────────────
+# CI — validates every push to main and every pull request.
+# The job id "ci" below is the required status check that branch protection
+# waits on before a PR can merge.
+# ─────────────────────────────────────────────────────────────────────────────
 
-on:
-  push:
+name: CI # Display name shown in the Actions tab.
+
+on: # Triggers — the events that start this workflow.
+  push: #  • on a git push…
     branches:
-      - main
-  pull_request:
+      - main #    …but only to the main branch.
+  pull_request: #  • on any pull request (opened or updated).
 
-# Cancel superseded runs on the same ref.
+# If a newer run starts for the same branch/PR, cancel the older one still running
+# (saves minutes; only the latest commit matters).
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.ref }} # one "lane" per workflow + ref.
+  cancel-in-progress: true # cancel the in-flight run in that lane.
 
+# What the run's automatic GITHUB_TOKEN may do (least privilege).
 permissions:
-  actions: read
-  contents: read
+  actions: read # read Actions metadata (used by nx-set-shas).
+  contents: read # read the repo contents; no write.
 
-jobs:
-  ci:
-    runs-on: ubuntu-latest
-    # Hard cap so a hung step (e.g. a stalled browser/apt download) fails in
-    # minutes instead of burning to GitHub's 6-hour job ceiling.
+jobs: # One or more jobs. This workflow has a single job.
+  ci: # Job id "ci" — THIS name is the required status check.
+    runs-on: ubuntu-latest # Run on a fresh GitHub-hosted Ubuntu VM.
+    # Hard cap: kill the job after 20 min so a hung step fails fast instead of
+    # running to GitHub's 6-hour ceiling.
     timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
+    steps: # Ordered steps; they all share this one VM.
+      - uses: actions/checkout@v4 # Clone your repo onto the VM (always step 1).
         with:
-          fetch-depth: 0
+          fetch-depth: 0 # Full git history (nx needs it to diff "affected").
 
-      # Derive NX_BASE / NX_HEAD for `nx affected` (no Nx Cloud).
-      - uses: nrwl/nx-set-shas@v4
+      - uses: nrwl/nx-set-shas@v4 # Work out the base/head SHAs for `nx affected`.
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4 # Install Node.js on the VM.
         with:
-          node-version: 22
-          cache: 'npm'
+          node-version: 22 # …version 22.
+          cache: 'npm' # Cache npm downloads between runs for speed.
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v4 # Install the .NET SDK on the VM.
         with:
-          global-json-file: global.json
+          global-json-file: global.json # Pin the SDK version from global.json.
 
-      # Skip husky in CI.
-      - run: npm ci --ignore-scripts
-      - run: dotnet tool restore
+      - run: npm ci --ignore-scripts # Install JS deps (--ignore-scripts skips husky).
+      - run: dotnet tool restore # Restore .NET local tools (e.g. dotnet-ef).
 
-      # Cache the Playwright browser bundle across runs — the cold download is
-      # what once stalled CI. On a cache hit the install is near-instant.
+      # Cache the Playwright browser download across runs (the cold download once
+      # stalled CI). On a cache hit the install two lines down is near-instant.
       - uses: actions/cache@v4
         with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
+          path: ~/.cache/ms-playwright # where Playwright stores its browsers.
+          key: playwright-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }} # exact cache identity.
+          # On a miss, fall back to any older Playwright cache for this OS:
           restore-keys: |
             playwright-${{ runner.os }}-
-      # Chromium only — matches the trimmed Playwright configs.
-      - run: npx playwright install --with-deps chromium
+      - run: npx playwright install --with-deps chromium # Install the Chromium browser + system libs.
 
-      - run: npx nx format:check
-      - run: npx nx affected -t lint test build e2e
+      - run: npx nx format:check # Fail if any file isn't Prettier-formatted.
+      - run: npx nx affected -t lint test build e2e # Lint/test/build/e2e only the projects this change affects.

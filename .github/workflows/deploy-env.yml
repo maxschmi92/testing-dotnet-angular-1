@@ -1,21 +1,18 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Deploy to environment (reusable) — deploys ONE environment.
+# Not triggered by git events; it is CALLED by deploy-azure.yml, once per
+# environment (staging, then production). Think of it as a subroutine.
+# ─────────────────────────────────────────────────────────────────────────────
+
 name: Deploy to environment (reusable)
 
-# Reusable deploy: rolls the *already-built* API image out to Container Apps and
-# ships the *already-built* SPA bundles to Static Web Apps for ONE environment.
-# Called once per environment by deploy-azure.yml — same artifacts, different config.
-#
-# The `environment:` on each job is what wires in per-environment variables/secrets
-# AND GitHub's environment protection rules. Point `production` at a "Required
-# reviewers" rule and these jobs pause for a human before they run — that pause is
-# the promotion gate.
-
 on:
-  workflow_call:
-    inputs:
+  workflow_call: # makes this workflow "callable" by another workflow.
+    inputs: # the parameters the caller must provide:
       environment:
         description: GitHub Environment to deploy to (e.g. staging / production)
-        required: true
-        type: string
+        required: true # must be supplied by the caller.
+        type: string # its type.
       image:
         description: Full GHCR image ref without tag (e.g. ghcr.io/owner/ada1)
         required: true
@@ -24,23 +21,25 @@ on:
         description: Immutable tag to promote (the commit SHA built upstream)
         required: true
         type: string
-    # Secrets come from `secrets: inherit` in the caller; environment-scoped
-    # secrets resolve because each job below targets `inputs.environment`.
+    # No `secrets:` block here — the caller passes them via `secrets: inherit`,
+    # and environment-scoped secrets resolve because each job sets `environment:`.
 
 permissions:
-  contents: read
+  contents: read # least privilege for the called jobs.
 
 jobs:
-  # Roll the promoted image out to Azure Container Apps.
+  # ── deploy the API container to Azure Container Apps ─────────────────────────
   api:
-    runs-on: ubuntu-latest
-    environment: ${{ inputs.environment }}
+    runs-on: ubuntu-latest # fresh Ubuntu VM.
+    environment: ${{ inputs.environment }} # bind to the passed env → the gate + env-scoped vars/secrets.
     steps:
-      - uses: azure/login@v2
+      - uses: azure/login@v2 # authenticate to Azure…
         with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-
+          creds: ${{ secrets.AZURE_CREDENTIALS }} # …with the service-principal JSON secret.
       - name: Roll out API to Container Apps
+        # Ensure the containerapp CLI extension is present, then point the app at
+        # the promoted image. (No inline comments on the `\`-continued lines — a
+        # trailing comment there would break the shell line-continuation.)
         run: |
           az extension add --name containerapp --upgrade --only-show-errors || true
           az containerapp update \
@@ -48,41 +47,43 @@ jobs:
             --resource-group "${{ vars.RESOURCE_GROUP }}" \
             --image "${{ inputs.image }}:${{ inputs.image_tag }}"
 
-  # Ship the admin SPA bundle, stamping this environment's API URL into config.json.
+  # ── deploy the admin SPA to Azure Static Web Apps ────────────────────────────
   admin:
     runs-on: ubuntu-latest
-    environment: ${{ inputs.environment }}
+    environment: ${{ inputs.environment }} # same env binding as the api job.
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4 # fetch the admin bundle the build job uploaded…
         with:
-          name: admin-dist
-          path: dist/apps/admin/browser
+          name: admin-dist # …by that artifact name…
+          path: dist/apps/admin/browser # …into this folder.
       - name: Stamp API URL
+        # Write this environment's API URL into a runtime config file the SPA reads.
         run: |
           printf '{ "apiBaseUrl": "%s" }' "${{ vars.API_BASE_URL }}" > dist/apps/admin/browser/config.json
-      - uses: Azure/static-web-apps-deploy@v1
+      - uses: Azure/static-web-apps-deploy@v1 # upload the prebuilt bundle to Static Web Apps…
         with:
-          azure_static_web_apps_api_token: ${{ secrets.AZURE_SWA_ADMIN_TOKEN }}
-          action: upload
-          app_location: dist/apps/admin/browser
-          skip_app_build: true
-          skip_api_build: true
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_SWA_ADMIN_TOKEN }} # …authorized by this deploy token…
+          action: upload # …in "upload a prebuilt app" mode…
+          app_location: dist/apps/admin/browser # …from this folder…
+          skip_app_build: true # …don't let SWA build (we already built it)…
+          skip_api_build: true # …and there's no managed API to build.
 
-  # Ship the client SPA bundle, stamping this environment's API URL into config.json.
+  # ── deploy the client SPA (identical shape to admin, for the client app) ─────
   client:
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment }}
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4 # fetch the client bundle from the build job…
         with:
-          name: client-dist
-          path: dist/apps/client/browser
+          name: client-dist # …by that artifact name…
+          path: dist/apps/client/browser # …into this folder.
       - name: Stamp API URL
+        # Write this environment's API URL into the client's runtime config file.
         run: |
           printf '{ "apiBaseUrl": "%s" }' "${{ vars.API_BASE_URL }}" > dist/apps/client/browser/config.json
-      - uses: Azure/static-web-apps-deploy@v1
+      - uses: Azure/static-web-apps-deploy@v1 # upload the prebuilt client bundle…
         with:
-          azure_static_web_apps_api_token: ${{ secrets.AZURE_SWA_CLIENT_TOKEN }}
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_SWA_CLIENT_TOKEN }} # …with the client's deploy token…
           action: upload
           app_location: dist/apps/client/browser
           skip_app_build: true
